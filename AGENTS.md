@@ -33,9 +33,12 @@ resolution-independent, no texture atlas needed.
 - `examples/hotpath.rs` - Profiling binary for brokkr
 - `examples/email_bench.rs`, `email2_bench.rs`, `gpu_bench.rs` - Benchmark
   targets (email-client scale, mixed-locale, GPU timing)
-- `tests/` - Spike tests and unit tests (63 passing, 11 ignored GPU-only)
+- `tests/` - Spike tests and unit tests (GPU-only tests are ignored by default)
 - `docs/` - Design docs, investigation log, integration spec
 - `repos/` - gitignored checkouts of iced, cosmic-text, cryoglyph for reference
+- `research/` (gitignored) - reference repos and docs: Slug reference shaders,
+  fontations, cosmic-text, vello, mesa, wgpu-naga, gpuweb spec, Vulkan spec,
+  NVIDIA shader guides, JCGT paper, and other Slug implementations.
 
 ## brokkr
 
@@ -86,6 +89,16 @@ separate axis: exact values `bench`, `hotpath`, `alloc`. To add a new
 benchmark target, create `examples/{name}_bench.rs` and a `[[example]]` entry
 in `Cargo.toml`.
 
+### Verifying changes that can alter rendered output
+
+A plain `brokkr check` is not enough. Also run `brokkr visual --all` against the
+approved baselines, and the GPU-gated test suite (`brokkr check -- -- --ignored`).
+The ignored suite is not part of a plain `brokkr check`, and it holds tests a
+snapshot cannot catch - e.g. `tests/solver_regression_test.rs`, which pins the
+solver cancellation fix at an exact subpixel witness no snapshot scene hits.
+For performance work, profile with `brokkr hotpath` and commit
+`.brokkr/results.db` alongside the code.
+
 ## Lints
 
 Cargo.toml has 27 clippy deny-level rules covering style, error handling,
@@ -118,10 +131,18 @@ costs.
 
 hotpath has no downstream coupling and can be bumped freely.
 
-## General rules
+## Rules
 
-- Don't use gremlins! Em-dash, en-dash, strange quotes, whatever - they're
-  all verboten.
+### General rules
+
+- Don't use gremlins! Em-dash, en-dash, strange quotes, whatever - they're all verboten.
+- Don't remind the user of the rules. They wrote them, so they know them.
+- The user can exempt you from any rule at any time.
+
+### Bash rules
+
+- Never read or write from `/tmp`. All data lives in the project.
+- Never run raw `cargo`, `curl`, `pkill`. Use `brokkr`.
 
 ## Document folders
 

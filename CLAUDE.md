@@ -5,28 +5,27 @@
 Project knowledge - what sluggrs is, code structure, brokkr, lints, tech
 stack and version pins - lives in `AGENTS.md`: imported above for Claude,
 picked up natively by codex. This file holds what codex sessions never
-touch: orchestration (the review tool, the fix loop), git, bash rules,
-profiling, the iced repo setup, and Claude-harness specifics.
+touch: git, bash rules, profiling, the iced repo setup, and Claude-harness
+specifics.
 
-## Bash rules
+## More rules
 
-- Each Bash invocation runs exactly one command. To run several, send
-  multiple Bash calls (in parallel when independent). This subsumes `&&`,
-  `;`, `|`, and multi-line scripts in one Bash call.
+### Memory rules
+
+Do not use your Memory functionality. Durable context belongs in CLAUDE.md or the relevant docs.
+
+### Bash rules
+
 - Never use `sed`, `find`, `awk`, `head`, `tail`, or complex bash commands.
+- Never `find /`.
+- One Bash() invocation === one command.
 - Never chain commands with `&&`.
 - Never chain commands with `;`.
-- Never chain/pipe commands with `|`. Exception: piping into `review` is
-  allowed (writing scratch prompt files is wasteful).
+- Never chain/pipe commands with `|`. Exception: piping into `review` is allowed.
 - Never capture stdout into env vars (`UUID=$(...)`).
-- Never read or write from `/tmp`. All data lives in the project.
-- Never run raw `cargo`, `curl`, `pkill`. Use `brokkr` - `brokkr check`
-  unless something else is clearly called for. This holds everywhere,
-  including `repos/iced/` and including fast iteration mid-implementation.
-- Never run `git` with `-C <path>`. Run `git` from the current working
-  directory.
+- Keep `git commit -m` messages free of zsh metacharacters - braces `{}`, brackets `[]`, parens `()`, angle brackets `<>`, `#`. They trip the permission matcher and block the commit. Spell lists out (`syntax, vm, data and runner`, not `{syntax,vm,data,runner}`), write `5.1 per bar` not `5.1/bar`, name attributes in prose not `#[attr]`.
 
-## Git commit rules
+### Git commit rules
 
 - Always run `brokkr fmt` before a commit.
 - Never commit markdown changes and/or `.brokkr/results.db` alone. Bundle
@@ -39,18 +38,31 @@ profiling, the iced repo setup, and Claude-harness specifics.
 - Has `Cargo.lock` changed? Commit it.
 - Never `git push` unless the user explicitly asks. Stop after the commit.
 
-## Memory rules
+### Subagents
 
-Do not use your Memory functionality. Do not read, write, or update
-memories. Do not suggest saving things to memory. Durable context belongs in
-CLAUDE.md or the relevant docs, not in per-session memory files - this
-project is developed across several hosts and users, and memory does not
-transfer between them; CLAUDE.md does.
+- Always get permission from the user before launching subagents.
+- Do NOT use git worktree isolation for parallel agents. Worktrees create merge conflicts that silently drop agent work. Instead, launch agents in the same tree with strict file ownership - zero overlap.
 
-## General rules
+Agent coordination rules:
+- Each agent gets exclusive ownership of specific files. No two agents touch the same file.
+- Agents must read their target file FIRST. Do not replace existing code with placeholders or stub it out.
+- Agents must NOT run `brokkr` or `cargo`. The orchestrator validates between agents.
 
-- Don't remind the user of CLAUDE.md rules. They wrote them, so they know
-  them.
+Audit protocol:
+- Do not trust agent claims of completion. Verify existence + wiring + behavior.
+- Use the 3-pass audit structure: domain-specific verification, then cross-cutting reconciliation (is the new code actually wired into its callers?), then editorial normalization.
+- Any discrepancies doc should contain only current gaps, not historical records. Remove resolved items entirely.
+
+Subagent prompt rules:
+- Scope the investigation, not the report. Caps like "under 1500 chars" or "max 15 findings" throw away signal you asked them to surface.
+- Invite lateral findings up front. If they notice a bug, optimization, smell, or anything surprising while doing the scoped work, they should flag it, even when it's outside the immediate task.
+- Name the question, not the method. Don't prescribe tools ("use `git diff`", "use `Read`"), don't prescribe steps ("read in full, not just hunks"), don't enumerate files when the scope already implies them. Prescribing the method wastes tokens and signals distrust.
+- Don't restate rules the agent already inherits. Subagents load the same CLAUDE.md / AGENTS.md as the main session, so the bash rules, no-cargo, no-worktrees, gremlins, etc. are already in scope. Re-listing them is noise.
+- Do pass anything learned in *this* conversation that the agent can't see: the user's framing, prior decisions, what's already been ruled out, the specific claim being audited.
+
+### Codex agents
+
+Never tell a codex agent to read CLAUDE.md (it is Claude-specific and contradicts their job), and never tell them to read AGENTS.md (codex loads it automatically). Put any rule they need directly in the prompt.
 
 ## Profiling
 
@@ -85,13 +97,12 @@ the old `-n` flag and `results --compare-last` are gone.
 
 Both CPU and GPU profiling run headless - no user interaction needed.
 
-- `brokkr sluggrs hotpath` measures CPU-side prepare AND GPU fragment shader
+- `brokkr hotpath` measures CPU-side prepare AND GPU fragment shader
   time via wgpu-profiler timestamp queries. Renders to an offscreen 1920x1080
   texture. The `gpu_text_render_us` KV is stored in results.db.
-- `cargo run --example demo` also emits `gpu_text_render_ms` to stderr on
-  each redraw (5 warmup frames at startup flush the profiler pipeline). A
-  window opens but GPU timing is captured automatically:
-  `timeout 3 cargo run --example demo 2>&1 | grep gpu_`
+- `brokkr run demo` also emits `gpu_text_render_ms` to stderr on each
+  redraw (5 warmup frames at startup flush the profiler pipeline). A
+  window opens but GPU timing is captured automatically.
 - Requires TIMESTAMP_QUERY + TIMESTAMP_QUERY_INSIDE_PASSES wgpu features
   (NVIDIA, AMD, Intel desktop all support these). Gracefully disabled if
   unavailable.
@@ -134,7 +145,7 @@ makes catch-ups mechanical:
 ```sh
 git fetch origin
 git rebase --onto origin/arboard-full-patch <our-commit>^ sluggrs
-cargo check --workspace
+brokkr check
 git push --force-with-lease fork sluggrs
 ```
 
@@ -155,99 +166,3 @@ arboard patches to upstream refactors themselves (e.g. the unified
 `core::text` editing) - their versions are canonical; never keep our own
 port of the same behavior alongside theirs. Never `git pull` (merge) the
 fork after a rebase; reset to `fork/sluggrs` instead.
-
-## Code review
-
-`.review.toml` defines three archetypes, codex-only by default:
-
-- **bare** = empty priming prompt; the piped prompt is the whole
-  instruction. The fix loop uses this so no hidden persona shapes any
-  stage's output and every stage stays auditable after the fact.
-- **bugs** = correctness-bug hunter that inspects the current repo state.
-- **goal** = prefixes the prompt with `/goal `.
-
-Profiles are tiers, not roles - any archetype can take any profile:
-
-- `--profile deep` = gpt-5.6-sol, low effort, read-only sandbox. Spec
-  critique and planning.
-- `--profile build` = gpt-5.6-sol, low effort, workspace-write
-  sandbox. Implementation.
-
-Both profiles are defined per host in `.review.toml`
-(`[<host>.codex.<profile>]`); a host without entries silently supplies
-nothing, so check the file rather than trusting this summary if a run
-behaves oddly.
-
-Usage: `echo "prompt" | review bare --profile deep`. The session ID is
-printed above the response; follow up with `--session <ID>`.
-
-`research/` (gitignored) contains reference repos and docs for reviewer context:
-Slug reference shaders, fontations, cosmic-text, vello, mesa, wgpu-naga, gpuweb spec,
-Vulkan spec, NVIDIA shader guides, JCGT paper, and other Slug implementations.
-
-TODO.md tags like `**hb review**` date from the previous 7-archetype setup;
-they record which reviewer caught what and stay as provenance.
-
-## Fix loop
-
-The process driving `WORK.md` against the backlog in `TODO.md`. `WORK.md`
-holds only the current loop's problem statement and plan - codex sessions
-read it and should see the problem, not the process. Loop history lives in
-git, not in `WORK.md`.
-
-One loop:
-
-1. Pick the next target(s) from `TODO.md`.
-2. Shallow-verify the target(s) are real by reading the cited code.
-3. Write the problem statement into `WORK.md`.
-4. Launch `review bare --profile deep` pointed at `WORK.md`: verify the
-   targets independently, produce an implementation plan. Runs in the
-   background so step 5 overlaps it; everything else is synchronous.
-5. While 4 runs: read the target code in depth and produce an independent
-   plan. Read-only work only - no edits while a reviewer is running.
-6. Consolidate. Argue with the reviewer until the plans agree. Write the
-   agreed plan into `WORK.md`.
-7. Launch `review bare --profile build` to implement.
-8. Review the diff twice: once directly, once by resuming the deep session
-   from step 4 with `--session <ID>`.
-9. Actionable findings get fixed - by a build session (findings written
-   into `WORK.md`) or by hand.
-10. Delete the shipped entry from `TODO.md`, run `brokkr fmt` +
-    `brokkr check`, commit. For changes that can alter rendered output,
-    also run `brokkr visual --all` against the approved baselines AND
-    the GPU-gated test suite (`brokkr check -- -- --ignored`) - it is
-    not part of a plain `brokkr check`, and it holds tests a snapshot
-    cannot catch (e.g. `tests/solver_regression_test.rs`, which pins
-    the solver cancellation fix at an exact subpixel witness no
-    snapshot scene hits). For performance work, profile with
-    `brokkr hotpath` and commit `.brokkr/results.db` alongside the
-    code.
-
-Notes:
-
-- **Point sessions at `WORK.md` and nothing else.** Never tell a review or
-  build session to read `CLAUDE.md` or `AGENTS.md`. codex picks up
-  `AGENTS.md` by convention, and `CLAUDE.md` is Claude-side process that
-  only pollutes a codex session's context. Standing project constraints
-  reach codex through `AGENTS.md`; `WORK.md` must carry everything
-  loop-specific the session needs, restated inline - above all "do not run
-  cargo/brokkr" (the orchestrator runs all checks). If a session needed to
-  know something and did not, that is a gap in `WORK.md`, not a missing
-  reading assignment.
-- **Codex refusal fallback.** If codex refuses or errors out on an item,
-  redo that item with the `Agent` tool, then go back to codex for the next
-  item. Do not water down the prompt, and do not treat a refusal as a
-  finding about the work. Reviewing/planning (steps 4, 8):
-  `model: "fable"`. Implementing (step 7): `model: "opus"`. Either way the
-  agent reads and writes only; the orchestrator runs `brokkr fmt` /
-  `brokkr check` in the main conversation, so parallel agents never
-  contend over a build.
-- **Never mutate the working tree while a review session is running.** A
-  `review` session starts fresh and fetches code itself: it runs
-  `git diff` and opens files in the live tree. A `git stash`,
-  `git checkout`, or any edit during that window silently changes what it
-  reviews, and the verdict that comes back cannot be placed. Concretely:
-  baseline profiling (`brokkr hotpath`) happens before launching the
-  reviewer or after it returns, never alongside it. The step-5 overlap is
-  read-only work only.
-
