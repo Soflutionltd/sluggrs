@@ -108,8 +108,8 @@ costs.
 
 ## Tech stack
 
-- Rust (edition 2024, MSRV 1.97)
-- cosmic-text 0.19 (shaping, layout, font system)
+- Rust (edition 2024, MSRV per `rust-version` in `Cargo.toml`)
+- cosmic-text (shaping, layout, font system) - the same git rev as iced, see below
 - skrifa 0.40 (glyph outline extraction)
 - wgpu 29 (GPU textures, render pipeline)
 - hotpath 0.22 (function-level profiling, brokkr integration)
@@ -117,14 +117,23 @@ costs.
 
 ### Deliberate version pins
 
-`ccu` will report skrifa and wgpu as outdated. Both are pinned on purpose:
+`ccu` will report skrifa and wgpu as outdated. Both are pinned on purpose,
+and cosmic-text is a git dependency on purpose:
 
-- **skrifa tracks cosmic-text, not latest.** cosmic-text 0.19 depends on
-  skrifa 0.40 directly *and* on skrifa 0.42 via swash. Our 0.40 pin dedups
-  with cosmic-text's copy; bumping to 0.45 would put a third skrifa in every
-  downstream build for no gain, since skrifa is internal to sluggrs (not
-  re-exported, no types cross the iced boundary). Bump only when cosmic-text
-  does.
+- **cosmic-text must be the exact crate iced uses.** cosmic-text types
+  (`Buffer`, `FontSystem`) cross the sluggrs/iced API boundary, so both must
+  resolve to one crate. Upstream iced depends on an experimental fork
+  (`hecrj/cosmic-text`, pinned by git rev) whose APIs iced's own code uses,
+  so sluggrs pins the same rev - cryoglyph does the same. A
+  `[patch.crates-io]` in iced would not work: patches only apply in the root
+  workspace, so downstream apps would still get two cosmic-texts. Whenever
+  an iced catch-up bumps the rev, bump it here too.
+- **skrifa tracks cosmic-text, not latest.** Our skrifa pin matches the
+  version cosmic-text depends on directly, so the two dedup; swash pulls in
+  a newer skrifa of its own. Bumping ours to latest would put yet another
+  skrifa in every downstream build for no gain, since skrifa is internal to
+  sluggrs (not re-exported, no types cross the iced boundary). Bump only
+  when cosmic-text does.
 - **wgpu must match iced.** wgpu types (`Device`, `RenderPass`,
   `TextureFormat`) cross the sluggrs/iced API boundary, so wgpu 30 has to
   wait for upstream iced.

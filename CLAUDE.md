@@ -155,9 +155,14 @@ single-branch: `remote.origin.fetch` covered only `master`, so
 `origin/arboard-full-patch` frozen for months - which once led a whole
 catch-up astray (a spurious merge of squidowl master plus a redundant
 re-port of the arboard patches, force-pushed away in ad1e240a). The refspec
-is fixed now (`+refs/heads/*:refs/remotes/origin/*`), but cheap insurance:
-`git ls-remote origin arboard-full-patch` and check the SHA matches the
-local tracking ref after fetching.
+should be `+refs/heads/*:refs/remotes/origin/*`, but it has regressed to
+master-only before, so check `git config --get-all remote.origin.fetch` and
+restore it if needed. Then `git ls-remote origin arboard-full-patch` and
+check the SHA matches the local tracking ref after fetching.
+
+Upstream iced pins cosmic-text to a git rev on an experimental fork. sluggrs
+must pin the identical rev (see "Deliberate version pins" in AGENTS.md), so
+check whether a catch-up moved it and bump sluggrs's `Cargo.toml` to match.
 
 Upstream **rebases and rewords** its branch, so our older copies of upstream
 commits will not match by patch-id - `git cherry` reports them as new. Verify
