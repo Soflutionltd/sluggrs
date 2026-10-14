@@ -112,7 +112,7 @@ costs.
 - cosmic-text (shaping, layout, font system) - the same git rev as iced, see below
 - skrifa 0.40 (glyph outline extraction)
 - wgpu 29 (GPU textures, render pipeline)
-- hotpath 0.22 (function-level profiling, brokkr integration)
+- hotpath 0.28 (function-level profiling, brokkr integration)
 - WGSL shaders (translated from Slug HLSL reference, MIT licensed)
 
 ### Deliberate version pins
